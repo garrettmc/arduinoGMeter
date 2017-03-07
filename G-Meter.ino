@@ -59,10 +59,10 @@ LiquidCrystal lcd(7, 8, 9, 10, 11, 12);
 #define ADXL_345_Data_Format_4G         B00000001
 #define ADXL_345_Data_Format_8G         B00000010
 #define ADXL_345_Data_Format_16G        B00000011
-#define ADXL_345_Data_Format_Mask       B11101100  // bit 5 is unused and should be 0, bit 1&2 are the 2G/4G/8G bits.
-
-#define ERR_READING 0xbaad
-
+// bit 1&2 are the 2G/4G/8G bits.
+// bit 4 is the full-res but, want 0 always, so 10bit output
+// bit 5 is unused and should be 0, 
+#define ADXL_345_Data_Format_Mask       B11100100  
 
 int ADX_Address = 0x53;  //I2C address of ADXL345
 int reading = 0;
@@ -105,6 +105,34 @@ void readFromI2C(byte device, byte address, int num, byte buff[]) {
 }
 
 
+
+
+
+// Ask for two IC2 registers, and combine them in to a word.  Sets error to true
+// if there was a read error.
+int wordFromRegisters(int reg0, int reg1) {
+  // Ask for two registers to be returned
+  Wire.beginTransmission(ADX_Address);
+  Wire.write(reg0);
+  Wire.write(reg1);
+  Wire.endTransmission();
+
+  // Try to read the two bytes returned
+  Wire.requestFrom(ADX_Address, 2);
+  if (Wire.available() >= 2) {
+    int value0 = Wire.read();
+    int value1 = Wire.read();
+    return value0 + (value1 << 8);
+  }
+
+  // Weird, asked for two bytes and didn't get them
+  error = true;
+  error_code = ADXL345_READ_ERROR;
+  return 0;
+}
+
+
+
 void setup() {
   byte oldVal;
   byte newVal;
@@ -132,31 +160,14 @@ void setup() {
   newVal = ADXL_345_Data_Format_4G | (oldVal & ADXL_345_Data_Format_Mask);
   writeToI2C(ADX_Address, ADXL345_Register_Data_Format, ADXL_345_Data_Format_4G);
 
+  // TODO: Want to increase data rate -- default is 10hz, can go up to 3200hz
+
   // Tell the Accelerometer to start measuring
   writeToI2C(ADX_Address, ADXL345_Register_Power_Control, ADXL345_PowerControl_Measure);
 }
 
 
-// Ask for two IC2 registers, and combine them in to a word.  Returns ERROR_READING on error
-// (which should never occur in this case).
-int wordFromRegisters(int reg0, int reg1) {
-  // Ask for two registers to be returned
-  Wire.beginTransmission(ADX_Address);
-  Wire.write(reg0);
-  Wire.write(reg1);
-  Wire.endTransmission();
 
-  // Try to read the two bytes returned
-  Wire.requestFrom(ADX_Address, 2);
-  if (Wire.available() >= 2) {
-    int value0 = Wire.read();
-    int value1 = Wire.read();
-    return value0 + (value1 << 8);
-  }
-
-  // Weird, asked for two bytes and didn't get them
-  return ERR_READING;
-}
 
 // I keep these to one digit before and after decimal, so everything
 // lines up always with calls to print(value).
@@ -175,9 +186,12 @@ void loop() {
   int z = wordFromRegisters(ADXL345_Register_Z0, ADXL345_Register_Z1);
 
   // Convert to G's
-  double Xg = x / 256.00; //Convert the output result into the acceleration g, accurate to 2 decimal points.
-  double Yg = y / 256.00;
-  double Zg = z / 256.00;
+  // << 1 x2 cuz I'm in 4g mode instead of 2g mode.  I get 10 bits of data off the device.
+  // To represent 4, need 3 bits, so 2 bits from the MSB + 1 bit from the LSB
+  double Xg = (x << 1) / 256.00; //Convert the output result into the acceleration g, accurate to 2 decimal points.
+  double Yg = (y << 1) / 256.00;
+  double Zg = (z << 1) / 256.00;
+
 
   // Remember min/max for each axis
   if (Xg > maxX) maxX = Xg;
