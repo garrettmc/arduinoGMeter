@@ -1,6 +1,9 @@
 /*
  *
  * Uses a 16x2 LCD display to display readings off a ADXL345 Accelerometer.
+ * Displays max +/- g's on the three axis.
+ * 
+ * A push button is used to reset the max's.
  *
  * The circuit:
  *   LCD:
@@ -13,7 +16,7 @@
  *    LCD R/W pin to ground
  *    LCD VSS pin to ground
  *    LCD VCC pin to 5V
- *    10K resistor:
+ *    10K pot resistor:
  *       ends to +5V and ground
  *       wiper to LCD VO pin (pin 3)
  *       
@@ -22,6 +25,10 @@
  *     GND -> GND
  *     SCL -> A5
  *     SCA -> A4
+ *     
+ *  Button
+ *     5v -> One side
+ *     Gnd -> 10k reistor -> other side -> pin 4
  *    
  */
 
@@ -33,6 +40,10 @@
 
 // initialize the library with the numbers of the interface pins
 LiquidCrystal lcd(7, 8, 9, 10, 11, 12);
+
+// Button
+const int startOverButtonPin = 4;
+
 
 // Accellerometer (ADXL345) Registers -- See data sheet at 
 // http://www.analog.com/media/en/technical-documentation/data-sheets/ADXL345.pdf
@@ -132,10 +143,33 @@ int wordFromRegisters(int reg0, int reg1) {
 }
 
 
+// I keep these to one digit before and after decimal, so everything
+// lines up always with calls to print(value).
+double maxX = 0.0;
+double minX = 1.0;
+double maxY = 0.0;
+double minY = 1.0;
+double maxZ = 0.0;
+double minZ = 1.0;
+
+// Reset the min/max values for the G readings
+int resetMinMax() {
+  maxX = 0.0;
+  minX = 1.0;
+  maxY = 0.0;
+  minY = 1.0;
+  maxZ = 0.0;
+  minZ = 1.0;  
+}
+
+
 
 void setup() {
   byte oldVal;
   byte newVal;
+
+  // Reset the min/max values to initial defaults.
+  resetMinMax();
   
   // TODO: Remove
   Serial.begin(9600);//Set the baud rate of serial monitor as 9600bps
@@ -150,6 +184,9 @@ void setup() {
   lcd.print("Y");
   lcd.setCursor(12,0);
   lcd.print("Z");
+
+  // Push button
+  pinMode(startOverButtonPin, INPUT);
 
   // Start IC2 
   Wire.begin();
@@ -168,17 +205,13 @@ void setup() {
 
 
 
-
-// I keep these to one digit before and after decimal, so everything
-// lines up always with calls to print(value).
-double maxX = 0.0;
-double minX = 0.0;
-double maxY = 0.0;
-double minY = 1.0;
-double maxZ = 1.0;
-double minZ = 1.0;
-
 void loop() {
+  // Start over button pushed?
+  int buttonState = digitalRead(startOverButtonPin);
+  if (buttonState == HIGH) {
+    resetMinMax();
+  }
+  
   // TODO: Data sheet recommends reading all at once, sample app read each x/y/z in three independent reads
   // Ask the ADXL for X/Y/Z data:
   int x = wordFromRegisters(ADXL345_Register_X0, ADXL345_Register_X1);
